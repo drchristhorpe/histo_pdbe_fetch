@@ -1,0 +1,40 @@
+{
+  "PISA": {
+    "pdb_id": "1BAK",
+    "assembly_id": 1,
+    "pisa_version": "2.0",
+    "assembly": {
+      "id": "1",
+      "size": 2,
+      "macromolecular_size": 1,
+      "score": "0.99",
+      "dissociation_energy": -12.5,
+      "accessible_surface_area": 5678.9,
+      "buried_surface_area": 2345.67,
+      "solvation_energy_gain": -35.8,
+      "entropy": 62.3,
+      "dissociation_area": 4691.34,
+      "number_of_uc": 1,
+      "number_of_dissociated_elements": 1,
+      "symmetry_number": 1,
+      "formula": "A(2)",
+      "composition": "A-2A",
+      "interface_count": 1,
+      "interfaces": [
+        {
+          "interface_id": "A-A",
+          "interface_area": 2345.67,
+          "solvation_energy": -35.8,
+          "stabilization_energy": -28.5,
+          "p_value": 0.001,
+          "number_interface_residues": 78,
+          "number_hydrogen_bonds": 28,
+          "number_salt_bridges": 8,
+          "number_disulfide_bonds": 1,
+          "number_covalent_bonds": 0,
+          "number_other_bonds": 5
+        }
+      ]
+    }
+  }
+}

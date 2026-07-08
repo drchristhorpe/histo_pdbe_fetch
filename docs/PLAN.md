@@ -2,200 +2,223 @@
 
 ## 1. Purpose
 
-Fetch metadata about all biological unit assemblies from the PDBe (Protein Data
-Bank in Europe) REST API for one or more PDB structure ids, writing each assembly
-as a separate JSON file organized in a folder hierarchy. For each PDB, create a
-subfolder named by the PDB id, and write individual assembly metadata files as
-`{pdb_id}__1.json`, `{pdb_id}__2.json`, etc.
+Fetch all biological unit assembly structures from the PDBe (Protein Data
+Bank in Europe) API for one or more PDB structure ids, writing each assembly
+as coordinate files (CIF and PDB format) organized in a folder hierarchy. For
+each PDB, create a subfolder named by the PDB id (lowercase), and write individual
+assembly files as `{pdb_id}__1.cif`, `{pdb_id}__1.pdb`, `{pdb_id}__2.cif`,
+`{pdb_id}__2.pdb`, etc.
 
 **Scope**: All biological unit assemblies (assembly 1, 2, 3, ...) for each PDB.
 Out of scope: crystal packing (`assembly 0`) and non-biological forms. Per-PDB
-querying is required — the PDBe API offers no bulk endpoint for assembly metadata.
+assembly discovery is required — the PDBe API's assembly discovery endpoint returns
+a list of available assembly ids for each PDB.
 
-## 2. Data source: PDBe PISA API
+## 2. Data source: PDBe API
 
-The PDBe exposes assembly metadata via JSON files served from the PDBe-KB
-filesystem, derived from [CCP4 PISA](http://www.ebi.ac.uk/msd-srv/pisa/)
-(Protein Interfaces, Surfaces and Assemblies).
+The PDBe exposes assembly discovery and structure files via two API endpoints:
 
-**Endpoint pattern**: For each PDB id + assembly id:
+### Assembly discovery endpoint
+Queries all available biological unit assemblies for a given PDB:
 ```
-https://www.ebi.ac.uk/pdbe/static/files/pisa/{pdb_id}/{pdb_id}-assembly{assembly_id}.json
+https://www.ebi.ac.uk/pdbe/api/v2/pdb/entry/assembly/{pdb_id}
 ```
 
-**Example**: `1AO7`, assembly 1 → `https://www.ebi.ac.uk/pdbe/static/files/pisa/1ao7/1ao7-assembly1.json`
+Returns JSON list of assembly objects with `assembly_id` fields (e.g., "1", "2", "3").
+Example: `1AO7` → returns assemblies 1 and 2 in JSON array.
 
-PDB ids are always **lowercase** in URLs; responses return uppercase `pdb_id` fields.
+### Structure file endpoint
+Downloads biological unit assemblies in gzipped mmCIF format:
+```
+https://www.ebi.ac.uk/pdbe/static/entry/download/{pdb_id}-assembly{assembly_id}.cif.gz
+```
+
+Example: `1AO7`, assembly 1 → `https://www.ebi.ac.uk/pdbe/static/entry/download/1ao7-assembly1.cif.gz`
+
+PDB ids are always **lowercase** in URLs.
 
 ## 3. Fetching strategy & key design decisions
 
 ### Assembly discovery: finding all assemblies per PDB
-A PDB can have multiple defined assemblies (assembly 1, 2, 3, ...). To discover
-how many assemblies exist for a given PDB, **Decision: attempt to fetch assembly
-1, 2, 3, ... sequentially until a 404 is received** (simple, no extra API calls,
-matches histo_stcrdab_fetch's per-item fetch pattern). The tool halts at the
-first missing assembly (if assembly 3 returns 404, don't try assembly 4).
+A PDB can have multiple defined assemblies (assembly 1, 2, 3, ...). The PDBe API
+provides a single discovery endpoint that returns a JSON list of all available
+assemblies. **Decision: Call the discovery endpoint once per PDB** (efficient,
+one API call, no sequential trial-and-error).
 
-- Rationale: Avoids a second API call per PDB to discover assembly count;
-  leverages the fact that assembly ids are contiguous integers starting at 1.
-- Edge case: If only assembly 1 exists, this is still one call (correct). If
-  assemblies 1, 2, 3 exist, three calls per PDB (acceptable, small overhead).
+- Rationale: Single API call returns complete assembly list; no guessing required.
+- Failure mode: PDB not found → empty list returned, graceful handling.
+
+### Structure file fetching
+For each discovered assembly, **Decision: download gzipped mmCIF files from PDBe**
+(official source, complete and consistent).
+
+- PDB format files are generated locally from CIF via BioPython PDBIO
+- Rationale: PDB format files are available from PDBe only for the first assembly
+  of most entries; CIF files are available for all assemblies.
+
+### Chain ID remapping for extended chain identifiers
+Some biological unit assemblies have more than 26 chains, requiring chain IDs like
+"A-1", "A-2", "B-1", etc. These exceed PDB format's single-character limit.
+
+**Decision: Automatic chain ID remapping during CIF→PDB conversion**
+- Remap extended chain IDs to A-Z, then 0-9 (up to 36 chains max)
+- Deterministic alphabetical mapping: sorted chain IDs → sequential A-Z, 0-9
+- Document original → remapped chain IDs in PDB REMARK lines
+- Structures with normal chain IDs (A, B, C, ...) are unaffected
+- Raise ValueError if >36 unique chains (prevents silent data loss)
+
+Rationale: Allows PDB format output for all biological units; users can recover
+original chain IDs from REMARK documentation; deterministic mapping ensures
+reproducibility.
 
 ### Per-PDB vs. bulk querying
-Unlike `histo_tcr_info_fetch`'s `summary/all` bulk endpoint, PDBe has **no
-advertised JSON bulk endpoint for assemblies**. Each assembly must be fetched
-individually per (pdb_id, assembly_id) pair. **Decision: implement per-PDB
-fetching with support for multiple PDBs in one CLI invocation** (both single and
-batch input supported). Parallel requests are optional in the library; CLI runs
-sequentially by default (users call this once per pipeline setup, not
-interactively). A legacy XML bulk endpoint exists but is being deprecated —
-don't use it unless a v0.2+ requirement for bulk performance emerges.
+PDBe offers a per-assembly discovery endpoint (one call per PDB returns all
+assembly ids). **Decision: implement per-PDB discovery with support for multiple
+PDBs in one CLI invocation**. Parallel requests are optional in the library; CLI
+runs sequentially by default (users call this once per pipeline setup, not
+interactively).
 
 ### Caching
-Responses are cached on disk (default `~/.cache/histo_pdbe_fetch/`, override
+HTTP responses are cached on disk (default `~/.cache/histo_pdbe_fetch/`, override
 with `--cache-dir`) keyed by URL hash. `--refresh` bypasses the cache.
-No per-request throttling is added — four parallel requests per second is
-well within PDBe's terms of service for a tool run that fetches a batch of
-PDBs once per pipeline setup (not interactively hammering the API).
+No per-request throttling is added — PDBe's terms of service allow typical usage.
 
-## 4. Response parsing & per-PDB fetching
+## 4. Assembly discovery, structure fetching, & CIF→PDB conversion
 
-Each PDB's assemblies are fetched and written independently to the output folder.
+Each PDB's assemblies are discovered, fetched, and written independently to the output folder.
 
-### Parsing (pure function, network-free, unit-tested)
+### Assembly discovery (network + cache)
 
 ```python
-def parse_assembly_json(json_text: str) -> dict:
-    """Parse a PDBe PISA assembly JSON response.
+def discover_assemblies(pdb_id: str, cache_dir: Path, refresh: bool) -> list[str]:
+    """Query PDBe to discover all biological unit assemblies for a PDB.
     
-    Returns the assembly dict from the response (or None if parsing fails).
-    Used only for parsing already-fetched text; no network.
+    Returns list of assembly IDs as strings (e.g., ["1", "2", "3"]), sorted numerically.
+    Returns empty list if PDB not found.
     """
 ```
 
-Extracts the top-level assembly information from the PISA response:
-- `pdb_id` (uppercased)
-- `assembly_id`
-- Metrics: `dissociation_energy`, `buried_surface_area`, `accessible_surface_area`,
-  `solvation_energy_gain`, `entropy`, `symmetry_number`
-- Composition data: `formula`, `composition` (chains + ligand labels)
-- Interface count and interface details (bond counts, areas)
+Calls the PDBe assembly discovery API, caches on disk, returns sorted list of assembly ids.
 
-### Fetching (network + cache, thin wrapper)
+### Structure file fetching (network + cache + decompression)
 
 ```python
-def fetch_pdbe_assembly(pdb_id: str, assembly_id: int, cache_dir: Path, refresh: bool) -> dict | None:
-    """Fetch a specific assembly for a single PDB id.
+def fetch_cif_file(pdb_id: str, assembly_id: str, cache_dir: Path, refresh: bool) -> str | None:
+    """Download and decompress a biological unit assembly CIF file from PDBe.
     
-    Returns parsed assembly dict, or None if the assembly doesn't exist.
-    Raises on network errors or unparseable responses.
+    Returns decompressed CIF content as string, or None if not found.
+    Handles gzip decompression and caches raw gzipped bytes.
     """
 ```
 
-Calls the PDBe API with a lowercase pdb_id, caches on disk, returns parsed result.
+Downloads gzipped mmCIF file, decompresses it, returns string content.
+
+### CIF to PDB conversion (pure function + chain remapping)
+
+```python
+def cif_to_pdb(cif_content: str, pdb_id: str) -> str:
+    """Convert CIF format structure to PDB format using BioPython.
+    
+    Automatically remaps extended chain IDs (e.g., "A-1", "B-2") to
+    single characters (A-Z, then 0-9) for PDB format compatibility.
+    Documents remapping in PDB REMARK lines.
+    
+    Raises ValueError if more than 36 unique chains.
+    """
+```
+
+BioPython's MMCIFParser parses CIF content, ChainIDRemapper handles extended chain ids,
+PDBIO writes PDB format. Chain remapping is automatic and transparent.
 
 ### Discovery & writing per PDB
 
 ```python
 def fetch_and_write_pdb_assemblies(pdb_id: str, output_dir: Path, cache_dir: Path, refresh: bool) -> dict:
-    """Fetch all assemblies for one PDB, write each to output folder.
+    """Fetch all assemblies for one PDB, write CIF and PDB files to output folder.
     
     Returns dict with "pdb_id", "assembly_count", "written_paths", "errors".
     """
 ```
 
 - Lowercase the PDB id for API queries
-- Try to fetch assembly 1, 2, 3, ... until a 404 is encountered
-- For each successful fetch:
-  - Create folder: `output_dir/{PDB_ID_UPPERCASE}/` if not exists
-  - Write file: `output_dir/{PDB_ID_UPPERCASE}/{pdb_id_uppercase}__{assembly_id}.json`
-  - Preserve exact JSON from PDBe (no field renaming)
+- Discover all assemblies via assembly discovery endpoint
+- For each discovered assembly:
+  - Download CIF file via structure download endpoint
+  - Convert to PDB format via BioPython (with automatic chain remapping)
+  - Create folder: `output_dir/{pdb_id_lowercase}/` if not exists
+  - Write files:
+    - `output_dir/{pdb_id_lowercase}/{pdb_id_lowercase}__{assembly_id}.cif`
+    - `output_dir/{pdb_id_lowercase}/{pdb_id_lowercase}__{assembly_id}.pdb`
 - Return summary: how many assemblies were written, any per-assembly errors
 
-## 5. JSON Schema per assembly file (v0.1.0 — initial)
+## 5. Output file formats and layout
 
-Each written file is a single assembly's metadata, validated against
-`src/histo_pdbe_fetch/schema/assembly.schema.json` (JSON Schema draft 2020-12).
-No envelope wrapper; each file is the assembly dict directly:
+### CIF files
+Raw mmCIF format from PDBe (gzip automatically decompressed). Contains full
+structural information including extended chain IDs.
 
-```jsonc
-{
-  "PISA": {
-    "pdb_id": "1AO7",
-    "assembly_id": 1,
-    "pisa_version": "2.0",
-    "assembly": {
-      "composition": "A-2A[NA](2)[ADP][RHO]",
-      "formula": "A(2)a(2)",
-      "size": 6,
-      "macromolecular_size": 2,
-      "symmetry_number": 1,
-      "dissociation_energy": -3.0,
-      "accessible_surface_area": 12345.67,
-      "buried_surface_area": 1234.56,
-      "solvation_energy_gain": -25.43,
-      "entropy": 45.2,
-      "interface_count": 1,
-      "interfaces": [
-        {
-          "interface_id": "A-B",
-          "interface_area": 1234.56,
-          "stabilization_energy": -15.2,
-          "solvation_energy": -25.1,
-          "p_value": 0.05,
-          "number_interface_residues": 45,
-          "number_hydrogen_bonds": 12,
-          "number_salt_bridges": 3,
-          "number_disulfide_bonds": 0,
-          "number_covalent_bonds": 0,
-          "number_other_bonds": 2
-        }
-      ]
-    }
-  }
-}
+### PDB files
+PDB format (v3) generated from CIF via BioPython. Chain IDs remapped to single
+characters (A-Z, 0-9) if needed, with remapping documented in REMARK lines:
+
+```
+REMARK   1 CHAIN ID REMAPPING FOR PDB FORMAT COMPATIBILITY
+REMARK   1 CHAIN A-1 REMAPPED TO A
+REMARK   1 CHAIN A-2 REMAPPED TO B
+ATOM      1  N   MET A   1 ...
 ```
 
-**Nullability**: Numeric fields can be `null` if the PISA computation didn't
-produce a value. String fields (composition, formula) are always present if
-the assembly exists.
-
-**Files written** (one per assembly):
+### Output folder structure
 ```
 output_dir/
-  1AO7/
-    1ao7__1.json
-    1ao7__2.json
-  1BAK/
-    1bak__1.json
+  1ao7/
+    1ao7__1.cif
+    1ao7__1.pdb
+    1ao7__2.cif
+    1ao7__2.pdb
+  1hhk/
+    1hhk__1.cif
+    1hhk__1.pdb
+    1hhk__2.cif
+    1hhk__2.pdb
 ```
 
-`schema_version` (within the bundled schema) follows semver; breaking changes
-(renamed/removed fields) bump the minor version pre-1.0.
+PDB ids are **lowercase** in folder names and filenames throughout.
 
 ## 6. Library API
 
 ```python
-from histo_pdbe_fetch import PDBeFetcher
+from histo_pdbe_fetch import PDBeFetcher, discover_assemblies, fetch_cif_file, cif_to_pdb
 
+# High-level API: fetch multiple PDBs, write all assemblies to disk
 fetcher = PDBeFetcher(cache_dir=None, refresh=False)
 # cache_dir=None -> ~/.cache/histo_pdbe_fetch
 
-result = fetcher.run(pdb_ids=["1ao7", "1bak", "2hla"], output_dir="./structures/")
-# result: {"pdb_results": [
-#   {"pdb_id": "1AO7", "assembly_count": 2, "written_paths": ["./structures/1AO7/1ao7__1.json", ...], "errors": []},
-#   ...
-# ], "total_assemblies_written": 5, "total_pdbs_processed": 3}
+result = fetcher.run(pdb_ids=["1ao7", "1hhk"], output_dir="./structures/")
+# result: {
+#   "pdb_results": [
+#     {"pdb_id": "1ao7", "assembly_count": 2, 
+#      "written_paths": ["./structures/1ao7/1ao7__1.cif", "./structures/1ao7/1ao7__1.pdb", ...],
+#      "errors": []},
+#     {"pdb_id": "1hhk", "assembly_count": 2,
+#      "written_paths": ["./structures/1hhk/1hhk__1.cif", "./structures/1hhk/1hhk__1.pdb", ...],
+#      "errors": []}
+#   ],
+#   "total_assemblies_written": 4,
+#   "total_pdbs_processed": 2
+# }
 ```
 
 The library:
-- `run(pdb_ids, output_dir)` — fetch all assemblies for each PDB, write to output folder hierarchy
+- `run(pdb_ids, output_dir)` — fetch all assemblies for each PDB, write CIF and PDB files to output folder hierarchy
 - Returns a dict with per-PDB results (assembly count, written file paths, errors)
-- Creates folder structure automatically (`output_dir/{PDB_ID}/`)
+- Creates folder structure automatically (`output_dir/{pdb_id_lowercase}/`)
 
-Lower-level functions (`fetch_pdbe_assembly`, `parse_assembly_json`,
-`fetch_and_write_pdb_assemblies`) are also public, for callers who want to
-fetch individual assemblies or handle I/O separately.
+Lower-level functions for building custom workflows:
+- `discover_assemblies(pdb_id, cache_dir, refresh)` — returns list of assembly ids
+- `fetch_cif_file(pdb_id, assembly_id, cache_dir, refresh)` — returns decompressed CIF content
+- `cif_to_pdb(cif_content, pdb_id)` — converts CIF to PDB with automatic chain remapping
+- `cif_to_pdb_with_remapping(cif_content, pdb_id, allow_remapping)` — returns both PDB content and chain mapping dict
 
 ## 7. CLI
 
@@ -204,36 +227,33 @@ histo-pdbe-fetch --output DIR [--cache-dir DIR] [--refresh] PDB_ID [PDB_ID ...]
 ```
 
 - `--output` (required): output directory (will be created if missing). Assemblies
-  are written as `output_dir/{PDB_ID}/{pdb_id}__{assembly_id}.json`.
+  are written as `output_dir/{pdb_id_lowercase}/{pdb_id_lowercase}__{assembly_id}.{cif|pdb}`.
 - `--cache-dir` (optional): override the default `~/.cache/histo_pdbe_fetch`.
 - `--refresh` (flag): bypass cache and re-fetch every PDB's assemblies.
-- `PDB_ID` (positional, one or more): PDB ids to fetch (e.g., `1ao7 1bak 2hla`).
-  Ids are case-insensitive; lowercased before API queries, uppercased in folder/file names.
+- `PDB_ID` (positional, one or more): PDB ids to fetch (e.g., `1ao7 1hhk 2hla`).
+  Ids are case-insensitive; lowercased throughout (folders, files, API queries).
 
 Rich console output on completion: a summary table showing:
 - PDB ids processed
-- Per-PDB assembly count
-- Total assemblies written
+- Per-PDB assembly count and file paths
+- Total assemblies written (in CIF and PDB formats)
 - Cache location
 - Output directory path
 
 Example:
 ```
-$ histo-pdbe-fetch --output ./pdb_structures 1ao7 1bak
-Processing 1AO7... fetched 2 assemblies
-Processing 1BAK... fetched 1 assembly
-Total: 2 PDBs, 3 assemblies written to ./pdb_structures/
+$ histo-pdbe-fetch --output ./pdb_structures 1ao7 1hhk
+Processing 1ao7... discovered 2 assemblies
+  1ao7__1: CIF (646 KB), PDB (463 KB)
+  1ao7__2: CIF (1.3 MB), PDB (926 KB)
+Processing 1hhk... discovered 2 assemblies
+  1hhk__1: CIF (542 KB), PDB (385 KB)
+  1hhk__2: CIF (583 KB), PDB (421 KB)
+Total: 2 PDBs, 4 assemblies (8 files) written to ./pdb_structures/
 Cache: ~/.cache/histo_pdbe_fetch/
 ```
 
-## 8. Claude skill
-
-`skills/histo-pdbe-fetch/SKILL.md` documents the CLI and the JSON output
-schema, so an agent can request assembly metadata for a set of PDBs ("fetch
-assembly data for these PDB ids", "get biological assembly info for 1ao7 and
-1bak").
-
-## 9. Package layout
+## 8. Package layout
 
 ```
 histo_pdbe_fetch/
@@ -246,24 +266,16 @@ histo_pdbe_fetch/
   docs/
     PLAN.md
   src/histo_pdbe_fetch/
-    __init__.py
-    http.py                # cached_get(): disk cache, refresh, User-Agent
-    core.py                # PDBeFetcher class, run(), fetch_and_write_pdb_assemblies()
-    cli.py                 # Click CLI entry point
+    __init__.py                      # exports PDBeFetcher, discover_assemblies, fetch_cif_file, cif_to_pdb, cif_to_pdb_with_remapping
+    http.py                          # cached_get(): disk cache, refresh, User-Agent
+    core.py                          # PDBeFetcher class, run(), fetch_and_write_pdb_assemblies()
+    cli.py                           # Click CLI entry point
+    chain_remapper.py                # ChainIDRemapper class, cif_to_pdb_with_remapping()
     py.typed
     sources/
       __init__.py
-      pdbe.py              # parse_assembly_json(), fetch_pdbe_assembly()
-    schema/
-      assembly.schema.json
-  skills/histo-pdbe-fetch/SKILL.md
+      pdbe.py                        # discover_assemblies(), fetch_cif_file(), cif_to_pdb()
   tests/
-    fixtures/
-      pdbe/                # real PDBe API responses for assembly queries
-        1ao7-assembly1.json
-        1ao7-assembly2.json
-        1bak-assembly1.json
-        1a0o-assembly1.json (404 case)
     test_pdbe.py
     test_core.py
     test_cli.py
@@ -271,44 +283,39 @@ histo_pdbe_fetch/
     .gitkeep
 ```
 
-## 10. Testing plan
+## 9. Testing plan
 
-Parsing functions are tested against small, real PDBe API responses (actual
-`assembly1.json`, `assembly2.json` files from diverse PDBs, plus 404 cases)
-— no network access, no synthetic data. `fetch_pdbe_assembly`/HTTP plumbing
-(`http.py`) is exercised by one live end-to-end run (see §11).
+- `test_pdbe.py`: Unit tests for `discover_assemblies()`, `fetch_cif_file()`, `cif_to_pdb()`,
+  and `ChainIDRemapper` with mocked HTTP responses and real CIF fixtures.
+  
+- `test_core.py`: Integration tests for `fetch_and_write_pdb_assemblies()` and `PDBeFetcher.run()`:
+  - Successful fetch, convert, and write (folder + file creation, correct naming)
+  - Multiple assemblies per PDB
+  - Chain ID remapping verification (REMARK lines present for remapped assemblies)
+  - Error handling (missing assemblies, network failures)
 
-`test_core.py` tests `fetch_and_write_pdb_assemblies()`:
-- Successful fetch and write (folder + file creation, correct naming)
-- Multiple assemblies per PDB
-- 404 handling (assembly doesn't exist, continue to next PDB)
-- File output to correct directory structure
+- `test_cli.py`: CLI tests using `click.testing.CliRunner` with mocked fetch layer:
+  - Single valid PDB → files written to `output_dir/{pdb_id}/`
+  - Multiple valid PDBs
+  - `--output-dir` creation and structure
+  - `--cache-dir`/`--refresh` flag passing
+  - Case-insensitive PDB id input (lowercased throughout)
 
-`test_cli.py` uses `click.testing.CliRunner` with monkeypatched fetch layer,
-covering:
-- Single valid PDB → files written to `output_dir/{PDB_ID}/`
-- Multiple valid PDBs
-- One invalid/missing PDB among valid ones (fetch continues)
-- `--output-dir` creation and structure
-- `--cache-dir`/`--refresh` flag passing
-- Case-insensitive PDB id input (lowercased for API, uppercased in folder/file names)
+## 10. Decisions & rationale
 
-A `jsonschema`-based test validates each written assembly JSON file against
-the bundled schema.
+1. **PDBe API for structure download**: PDBe provides gzipped mmCIF files for all
+   assemblies, while PDB format files are only available for the first assembly
+   of most entries. CIF → PDB conversion via BioPython is reliable and allows
+   consistent output for all assemblies.
 
-## 11. Workflow
+2. **Automatic chain ID remapping**: Some biological units require extended chain
+   IDs (A-1, A-2, etc.) exceeding PDB's single-character limit. Automatic remapping
+   to A-Z, 0-9 allows PDB format output while documenting the mapping in REMARK
+   lines, enabling users to recover original chain IDs if needed.
 
-1. Write this plan, commit-worthy on its own. ✓
-2. Scaffold the package layout.
-3. Implement `http.py`, then `sources/pdbe.py` (parse function first,
-   fixture-tested, then the thin fetch wrapper), then `core.py`, `cli.py`.
-4. Write `CHANGELOG.md` as work proceeds (Keep a Changelog format).
-5. Write tests against committed real PDBe API responses (including multiple
-   assemblies per PDB, and missing assembly cases).
-6. Run the full pipeline live:
-   ```bash
-   histo-pdbe-fetch --output tmp/pdb_structures 1ao7 1bak 2hla 1a0o
-   ```
-   Inspect `tmp/pdb_structures/` folder structure and sample JSON files for Chris to eyeball.
-7. Pause for approval — commit and write `README.md` + `CLAUDE.md` + `SKILL.md`
-   only once approved.
+3. **Deterministic chain mapping**: Alphabetically sorted chain IDs ensure
+   reproducible, deterministic mapping across runs and users, important for
+   reproducible science and comparing results.
+
+4. **Disk caching**: Cache HTTP responses by URL hash to avoid redundant downloads
+   during development/re-runs. `--refresh` flag allows bypassing cache when needed.

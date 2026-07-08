@@ -1,0 +1,40 @@
+{
+  "PISA": {
+    "pdb_id": "1AO7",
+    "assembly_id": 2,
+    "pisa_version": "2.0",
+    "assembly": {
+      "id": "2",
+      "size": 12,
+      "macromolecular_size": 2,
+      "score": "0.87",
+      "dissociation_energy": -8.5,
+      "accessible_surface_area": 24567.89,
+      "buried_surface_area": 3456.78,
+      "solvation_energy_gain": -45.67,
+      "entropy": 78.9,
+      "dissociation_area": 6913.56,
+      "number_of_uc": 2,
+      "number_of_dissociated_elements": 2,
+      "symmetry_number": 2,
+      "formula": "A(4)a(4)",
+      "composition": "A-4A[NA](4)[ADP](2)[RHO](2)",
+      "interface_count": 3,
+      "interfaces": [
+        {
+          "interface_id": "A-C",
+          "interface_area": 1500.5,
+          "solvation_energy": -28.5,
+          "stabilization_energy": -18.2,
+          "p_value": 0.02,
+          "number_interface_residues": 52,
+          "number_hydrogen_bonds": 15,
+          "number_salt_bridges": 4,
+          "number_disulfide_bonds": 0,
+          "number_covalent_bonds": 0,
+          "number_other_bonds": 1
+        }
+      ]
+    }
+  }
+}
