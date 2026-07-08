@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -f /Users/drchristhorpe/science/histo_tools/histo_pdbe_fetch/tests/fixtures/pdbe/*.json)"
+    ],
+    "additionalDirectories": [
+      "/Users/drchristhorpe/science/histo_tools/histo_pdbe_fetch/tests/fixtures/pdbe"
+    ]
+  }
+}

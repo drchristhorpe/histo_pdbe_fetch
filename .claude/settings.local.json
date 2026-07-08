@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.ebi.ac.uk)",
+      "Bash(curl -s \"https://www.ebi.ac.uk/pdbe/api/pdb/entry/1a3w/assembly\")",
+      "Bash(curl -s \"https://www.ebi.ac.uk/pdbe/api/pdb/entry/1a3w\")",
+      "WebFetch(domain:github.com)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"https://www.ebi.ac.uk/pdbe/api/pdb/entry/1a3w/summary\")",
+      "WebFetch(domain:instruct-eric.org)",
+      "WebFetch(domain:pdbe.org)",
+      "WebFetch(domain:pmc.ncbi.nlm.nih.gov)",
+      "Bash(curl -s \"https://www.ebi.ac.uk/pdbe/api/assemblies/1a3w\")",
+      "Bash(curl -s \"https://www.ebi.ac.uk/pdbe/api/pdb/entry/1fcn\")",
+      "Bash(curl -s \"https://www.ebi.ac.uk/pdbe/api/pisa/asis/1a3w/1\")",
+      "Bash(curl -s \"https://www.ebi.ac.uk/pdbe/api/pisa/asis/1fcn/1\")",
+      "Bash(curl -s \"https://pdbeurope.docs.apiary.io/\")",
+      "Bash(curl -s \"https://www.ebi.ac.uk/pdbe/graph-api/rest/query_builder/select_fields\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/PDBe-KB/pdbe-pisa-json/main/README.md\")",
+      "WebFetch(domain:pisalite.docs.apiary.io)",
+      "Bash(curl -v -H 'User-Agent: histo-pdbe-fetch/0.1.0' https://www.ebi.ac.uk/pdbe/static/files/pisa/1ao7/1ao7-assembly1.json)",
+      "Bash(curl -s -w '\\\\nHTTP Status: %{http_code}\\\\n' -H 'User-Agent: Mozilla/5.0' https://www.ebi.ac.uk/pdbe/static/files/pisa/1ao7/1ao7-assembly1.json)",
+      "Bash(curl -s -w '\\\\nHTTP Status: %{http_code}\\\\n' https://www.ebi.ac.uk/pdbe/api/pdb/entry/1ao7/assembly)",
+      "Bash(curl -s -w '\\\\nHTTP Status: %{http_code}\\\\n' https://www.ebi.ac.uk/pdbe/api/pdb/entry/1ao7)"
+    ]
+  }
+}

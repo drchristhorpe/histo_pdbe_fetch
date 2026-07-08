@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PDBe PISA Assembly Metadata",
+  "description": "JSON Schema for a single biological unit assembly from PDBe PISA",
+  "type": "object",
+  "properties": {
+    "PISA": {
+      "type": "object",
+      "properties": {
+        "pdb_id": {
+          "type": "string",
+          "description": "PDB id (4 characters, uppercase)"
+        },
+        "assembly_id": {
+          "type": "integer",
+          "description": "Assembly id"
+        },
+        "pisa_version": {
+          "type": "string",
+          "description": "PISA version"
+        },
+        "assembly": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "size": {
+              "type": ["integer", "null"],
+              "description": "Total number of molecules in assembly"
+            },
+            "macromolecular_size": {
+              "type": ["integer", "null"],
+              "description": "Number of distinct macromolecules"
+            },
+            "score": {
+              "type": ["string", "null"]
+            },
+            "dissociation_energy": {
+              "type": ["number", "null"],
+              "description": "Thermodynamic stability in kcal/mol"
+            },
+            "accessible_surface_area": {
+              "type": ["number", "null"],
+              "description": "Total solvent-accessible surface in Ų"
+            },
+            "buried_surface_area": {
+              "type": ["number", "null"],
+              "description": "Interface contact area in Ų"
+            },
+            "solvation_energy_gain": {
+              "type": ["number", "null"],
+              "description": "Solvation energy gain in kcal/mol"
+            },
+            "entropy": {
+              "type": ["number", "null"]
+            },
+            "dissociation_area": {
+              "type": ["number", "null"],
+              "description": "Dissociation area in Ų"
+            },
+            "number_of_uc": {
+              "type": ["integer", "null"],
+              "description": "Number of unit cells"
+            },
+            "number_of_dissociated_elements": {
+              "type": ["integer", "null"]
+            },
+            "symmetry_number": {
+              "type": ["integer", "null"],
+              "description": "Rotational symmetry of assembly"
+            },
+            "formula": {
+              "type": ["string", "null"],
+              "description": "Chemical formula notation (e.g., 'A(2)B(3)a(6)')"
+            },
+            "composition": {
+              "type": ["string", "null"],
+              "description": "Chain composition with ligands (e.g., 'A-2A[NA](2)[GOL]')"
+            },
+            "R350": {
+              "type": ["string", "null"]
+            },
+            "interface_count": {
+              "type": ["integer", "null"],
+              "description": "Number of interfaces in this assembly"
+            },
+            "interfaces": {
+              "type": ["array", "null"],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "interface_id": {
+                    "type": "string"
+                  },
+                  "interface_area": {
+                    "type": ["number", "null"]
+                  },
+                  "solvation_energy": {
+                    "type": ["number", "null"]
+                  },
+                  "stabilization_energy": {
+                    "type": ["number", "null"]
+                  },
+                  "p_value": {
+                    "type": ["number", "null"]
+                  },
+                  "number_interface_residues": {
+                    "type": ["integer", "null"]
+                  },
+                  "number_hydrogen_bonds": {
+                    "type": ["integer", "null"]
+                  },
+                  "number_covalent_bonds": {
+                    "type": ["integer", "null"]
+                  },
+                  "number_disulfide_bonds": {
+                    "type": ["integer", "null"]
+                  },
+                  "number_salt_bridges": {
+                    "type": ["integer", "null"]
+                  },
+                  "number_other_bonds": {
+                    "type": ["integer", "null"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
