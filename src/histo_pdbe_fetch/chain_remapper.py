@@ -66,9 +66,17 @@ class ChainIDRemapper:
         # Parse data rows and extract chain IDs
         while i < len(lines):
             line = lines[i].strip()
+            # End of the _atom_site loop: the next `loop_`, category header
+            # (`_...`), block terminator (`#`) or blank line closes it. We must
+            # STOP here, not skip past — otherwise a following loop whose data
+            # rows also start with a digit (notably `_atom_site_anisotrop`,
+            # present in high-resolution X-ray entries) gets read as if it were
+            # more atom_site rows, and its atom-name column is mistaken for
+            # chain IDs (inflating the count and tripping the 36-chain PDB
+            # ceiling). mmCIF guarantees no `_`/`loop_` lines inside a loop's
+            # data block, so the first such line is an unambiguous terminator.
             if not line or line.startswith("#") or line.startswith("loop_") or line.startswith("_"):
-                i += 1
-                continue
+                break
 
             # Split by whitespace, handling quoted values
             values = []

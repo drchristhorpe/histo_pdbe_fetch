@@ -119,6 +119,40 @@ ATOM B-1 1
         assert "A-2" in chains
         assert "B-1" in chains
 
+    def test_analyze_chains_stops_at_anisotrop_loop(self) -> None:
+        """Regression: the _atom_site scan must stop at the end of its loop.
+
+        High-resolution X-ray entries carry an `_atom_site_anisotrop` loop right
+        after `_atom_site`. Its data rows also start with a digit, so a scan that
+        skips (rather than stops on) `loop_`/`_`-prefixed lines reads them as more
+        atom_site rows and mistakes the anisotrop atom-name column for chain IDs —
+        inflating the count past the 36-chain PDB ceiling and silently dropping the
+        structure. Only the real chains (A) must be returned here, never atom names.
+        """
+        from histo_pdbe_fetch.chain_remapper import ChainIDRemapper
+
+        cif_content = """data_3o4l
+loop_
+_atom_site.group_PDB
+_atom_site.id
+_atom_site.auth_asym_id
+_atom_site.auth_atom_id
+ATOM 1 A N
+ATOM 2 A CA
+ATOM 3 A O
+#
+loop_
+_atom_site_anisotrop.id
+_atom_site_anisotrop.auth_atom_id
+1 N
+2 CA
+3 O
+"""
+        chains = ChainIDRemapper.analyze_chains(cif_content)
+        assert set(chains) == {"A"}
+        for atom_name in ("N", "CA", "O"):
+            assert atom_name not in chains
+
     def test_create_mapping_deterministic(self) -> None:
         """Mapping is deterministic and alphabetically ordered."""
         from histo_pdbe_fetch.chain_remapper import ChainIDRemapper
